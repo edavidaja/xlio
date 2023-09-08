@@ -1,0 +1,102 @@
+---
+title: "xlio"
+output:
+  html_document:
+    df_print: paged
+rmd_output_metadata:
+  rsc_output_files:
+    - "cbo_tidied.xlsx"
+resource_files:
+  - "cbo_tidied.xlsx"
+---
+
+```{r}
+library(tidyverse)
+library(tidyxl)
+library(unpivotr)
+library(readxl)
+library(openxlsx)
+library(writexl)
+library(janitor)
+```
+
+Check out this book for more on working with [ms office](https://ardata-fr.github.io/officeverse/)
+
+## get cbo data
+
+```{r}
+
+infile <- "https://www.cbo.gov/system/files/2021-02/51135-2021-02-economicprojections.xlsx"
+economic_projections <- basename(infile)
+
+download.file(
+  infile,
+  economic_projections,
+  mode = "wb" # use for files that aren't just plain text
+)
+```
+
+## readxl
+
+```{r}
+readxl::excel_sheets(economic_projections)
+
+quarterly <-
+  read_excel(economic_projections, sheet = "1. Quarterly") %>%
+  janitor::row_to_names(6) %>% 
+  janitor::clean_names() %>%
+  fill(
+    starts_with("na"), .direction = "down"
+  ) %>%
+  drop_na(starts_with("x")) %>%
+  pivot_longer(
+    cols = starts_with("x"),
+    names_prefix = "x",
+    names_to = c("quarter")
+  )
+```
+
+## tidyxl + unpivotr
+
+parse spreadsheet in a one-row-per-cell tidy format. Read more at [Spreadsheet Munging Strategies](https://nacnudus.github.io/spreadsheet-munging-strategies/)
+
+```{r}
+
+quarterly_v2 <-
+xlsx_cells(economic_projections) %>% 
+  filter(
+    sheet == "1. Quarterly",
+    row > 6, 
+    row < 159
+    ) %>% 
+  select(sheet:character)
+
+```
+
+## write to a database
+
+using the SQLite in-memory database for this example, but see [db.rstudio.com](https://db.rstudio.com/getting-started/) for examples with your preferred database
+
+```{r}
+library(DBI)
+
+con <- dbConnect(RSQLite::SQLite(), ":memory:")
+
+dbWriteTable(con, "quarterly_readxl", quarterly)
+dbWriteTable(con, "quarterly_tidyxl", quarterly_v2)
+
+dbListTables(con)
+dbDisconnect(con)
+```
+
+## write to an excel file
+
+```{r}
+writexl::write_xlsx(quarterly, "cbo_tidied.xlsx")
+```
+
+Check out the [openxlsx docs](https://ycphs.github.io/openxlsx/articles/Formatting.html) for writing sheets with more formatting.
+
+## download data
+
+[data](./cbo_tidied.xlsx)
